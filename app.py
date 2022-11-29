@@ -26,6 +26,10 @@ try:
 except:
     pass
 
+global jsson 
+jsson = {}
+
+
 @application.route('/')
 def entry_point():
     return "Forecasting Prices Of Stores API Status -->> Active "
@@ -60,15 +64,27 @@ def detect():
         else:
             return { 'message' :  "Unable to predict" }
 
+@application.route('/Checktrain/', methods=['POST'])
+def checktrain():
+    global jsson
+    if request.method == 'POST':
+        arggg = request.json
+        print(jsson)
+        print(str(arggg['UserID']))
+        return jsson[str(arggg['UserID'])]
+
 
 @application.route('/train/', methods=['POST'])
 def train():
+    global jsson
     if request.method == 'POST':
         arggg = (request.json)
         FileDataframe = (arggg)
         asd=(FileDataframe["payload1"])
         dff=pd.DataFrame(asd)
         UserID = (FileDataframe["payload2"]['UserID'])
+        jsson[UserID] = "False"
+
         new_dataframe = dff[["Store","Price","Timestamp"]]
         timee_day = []
         for things in new_dataframe["Timestamp"]:
@@ -134,10 +150,12 @@ def train():
             asd['AverageRMSE'] = round((sum(rmsee) / len(rmsee)),2)
             asd['Status'] = 1
             asd['Stores'] = stores
+            jsson[UserID] = "True"
+
             return asd
         else:
             return { 'message' :  "Unable to predict" }
 
 
 if __name__ == '__main__':
-    application.run(host='0.0.0.0')
+    application.run(host='0.0.0.0',threaded=True)
