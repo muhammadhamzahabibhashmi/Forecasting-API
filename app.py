@@ -4,6 +4,8 @@ import pickle
 import pickle,os
 import numpy as np
 import pandas as pd
+# from flask import jsonify
+import json
 from keras.models import Sequential
 from keras.models import load_model
 from keras.layers import Dense,Dropout,LSTM
@@ -27,8 +29,12 @@ except:
     pass
 
 global jsson 
-jsson = {}
-
+FileNameee = {}
+try:
+    with open('history.json', 'r') as openfile:
+        jsson = json.load(openfile)
+except:
+    jsson = {}
 
 @application.route('/')
 def entry_point():
@@ -41,9 +47,10 @@ def detect():
         store = arggg['store']
         days = arggg['days']
         UserID = arggg['UserID']
-        model = load_model(f'Models/{UserID}_{store}.h5')
-        df = pd.read_csv(f'Processed_Dataset/{UserID}_{store}.csv',index_col='Timestamp',parse_dates=True)
-        with open(f'DataTransforms/{UserID}_{store}.pickle', 'rb') as handle:
+        FileName = arggg['FileName']
+        model = load_model(f'Models/{UserID}_{FileName}_{store}.h5')
+        df = pd.read_csv(f'Processed_Dataset/{UserID}_{FileName}_{store}.csv',index_col='Timestamp',parse_dates=True)
+        with open(f'DataTransforms/{UserID}_{FileName}_{store}.pickle', 'rb') as handle:
                 scaler = pickle.load(handle)
         scaled_train  = scaler.transform(df)
         test_predictions = []
@@ -71,8 +78,11 @@ def checktrain():
         arggg = request.json
         print(jsson)
         print(str(arggg['UserID']))
-        return jsson[str(arggg['UserID'])]
-
+        try:
+            return json.dumps(jsson[str(arggg['UserID'])])
+        except KeyError:
+            jsson[str(arggg['UserID'])] = {"status": "False", "StoreForTraining":'This User is never been Trained'}
+            return json.dumps(jsson[str(arggg['UserID'])]) 
 
 @application.route('/train/', methods=['POST'])
 def train():
@@ -83,8 +93,19 @@ def train():
         asd=(FileDataframe["payload1"])
         dff=pd.DataFrame(asd)
         UserID = (FileDataframe["payload2"]['UserID'])
-        jsson[UserID] = "False"
+        NumberOfEpochs = (FileDataframe["payload2"]['NumberOfEpochs'])
+        FileName = (FileDataframe["payload2"]['FileName'])
+        try:
+            if FileName.split('.')[0] not in FileNameee[UserID]: 
+                FileNameee[UserID].append(FileName.split('.')[0])
+        except KeyError:
+            FileNameee[UserID] = []
+            jsson[UserID] = {}
+            FileNameee[UserID].append(FileName.split('.')[0])
 
+        # FileNameee[UserID] = FileNameee[UserID]
+        # UserID_FileName = []        
+        # jsson[UserID] = f"{UserID} has received the file and started tr"
         new_dataframe = dff[["Store","Price","Timestamp"]]
         timee_day = []
         for things in new_dataframe["Timestamp"]:
@@ -96,17 +117,24 @@ def train():
         stores = list(set(new_dataframee.Store.values.tolist()))
         asd={}
         rmsee = []
+        donestores = []
+        totallStores = len(stores) 
+        IndextotallStores = 0
         for stro in stores:
+            jsson[UserID]["ListOfUsersModels"] = FileNameee[UserID]  
+            jsson[UserID][f"{FileName.split('.')[0]}"] = {"Training" :"In Progress" ,
+            "ListOfStores":stores, "StoresTrainingStatus": f"{IndextotallStores} Out Of {totallStores} stores have been Trained"}
+            
             final_df = new_dataframee.loc[new_dataframee['Store'] == stro]
-
+            donestores.append(stro)
             df = final_df[["Price"]]
             splitter = int((4.5 * len(df)) / 5)
             train = df.iloc[:splitter]
             test = df.iloc[splitter:]
-            test[-12:].to_csv(f"Processed_Dataset/{UserID}_{stro}.csv")
+            test[-12:].to_csv(f"Processed_Dataset/{UserID}_{FileName.split('.')[0]}_{stro}.csv")
             scaler = MinMaxScaler()
             scaler.fit(train)
-            with open(f'DataTransforms/{UserID}_{stro}.pickle', 'wb') as handle:
+            with open(f"DataTransforms/{UserID}_{FileName.split('.')[0]}_{stro}.pickle", 'wb') as handle:
                 pickle.dump(scaler, handle, protocol=pickle.HIGHEST_PROTOCOL)
             scaled_train = scaler.transform(train)
             # scaled_test = scaler.transform(test)
@@ -118,15 +146,21 @@ def train():
             model.add(Dropout(0.2))
             model.add(LSTM(units=96,return_sequences=True))
             model.add(Dropout(0.2))
+            model.add(LSTM(units=196,return_sequences=True))
+            model.add(Dropout(0.2))
+            model.add(LSTM(units=196,return_sequences=True))
+            model.add(Dropout(0.2))
+            model.add(LSTM(units=196,return_sequences=True))
+            model.add(Dropout(0.2))
             model.add(LSTM(units=96,return_sequences=True))
             model.add(Dropout(0.2))
-            model.add(LSTM(units=96))
+            model.add(LSTM(units=36))
             model.add(Dropout(0.2))
             model.add(Dense(units=1))
             model.compile(optimizer='adam', loss='mse')
             model.summary()
-            model.fit(generator,epochs=1)
-            model.save(f'Models/{UserID}_{stro}.h5')
+            model.fit(generator,epochs=NumberOfEpochs)
+            model.save(f'Models/{UserID}_{FileName.split(".")[0]}_{stro}.h5')
 
             test_predictions = []
             first_eval_batch = scaled_train[-n_input:]
@@ -143,19 +177,28 @@ def train():
                 pred.append(round(ttrr[0],2))
             test.insert(loc=1, column="Predictions", value=pred)
             tttttt = mean_squared_error(test['Price'],test['Predictions'], squared=False)
-            rmsee.append(tttttt)
-            asd[f'{stro}'] = tttttt
-
-        if (len(pred)>0):
-            asd['AverageRMSE'] = round((sum(rmsee) / len(rmsee)),2)
-            asd['Status'] = 1
-            asd['Stores'] = stores
-            jsson[UserID] = "True"
-
-            return asd
-        else:
-            return { 'message' :  "Unable to predict" }
-
+            if (max(test['Price']) - min(test['Price'])) > 1:
+                normlizedRMSEE = tttttt / (max(test['Price']) - min(test['Price'])) 
+                if normlizedRMSEE > 1:
+                    normlizedRMSEE = 1                
+                rmsee.append(normlizedRMSEE)
+                asd[f'{stro}'] = normlizedRMSEE
+            elif (max(test['Price']) - min(test['Price'])) < 1:
+                normlizedRMSEE = tttttt / 1
+                if normlizedRMSEE > 1:
+                    normlizedRMSEE = 1      
+                rmsee.append( normlizedRMSEE)
+                asd[f'{stro}'] = normlizedRMSEE
+            IndextotallStores += 1
+        jsson[UserID][f"{FileName.split('.')[0]}"] = {"ListOfStores":stores, "RMSE_StoreByStore": asd,
+        "Training" :"Completed",
+        "StoresTrainingStatus": f"{IndextotallStores} Out Of {totallStores} stores have been Trained"}    
+        jsson[UserID][FileName.split('.')[0]]['NormalizedRMSE'] = round((sum(rmsee) / len(rmsee)),2)
+        json_object = json.dumps(jsson, indent=4)
+        with open("history.json", "w") as outfile:
+            outfile.write(json_object)
+        return 0
+        
 
 if __name__ == '__main__':
     application.run(host='0.0.0.0',threaded=True)
