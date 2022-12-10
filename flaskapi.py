@@ -178,11 +178,17 @@ def train():
             test.insert(loc=1, column="Predictions", value=pred)
             tttttt = mean_squared_error(test['Price'],test['Predictions'], squared=False)
             if (max(test['Price']) - min(test['Price'])) > 1:
-                rmsee.append( tttttt / (max(test['Price']) - min(test['Price'])))
-                asd[f'{stro}'] = tttttt / (max(test['Price']) - min(test['Price']))
+                normlizedRMSEE = tttttt / (max(test['Price']) - min(test['Price'])) 
+                if normlizedRMSEE > 1:
+                    normlizedRMSEE = 1                
+                rmsee.append(normlizedRMSEE)
+                asd[f'{stro}'] = normlizedRMSEE
             elif (max(test['Price']) - min(test['Price'])) < 1:
-                rmsee.append( tttttt / 1)
-                asd[f'{stro}'] = tttttt / 1
+                normlizedRMSEE = tttttt / 1
+                if normlizedRMSEE > 1:
+                    normlizedRMSEE = 1      
+                rmsee.append( normlizedRMSEE)
+                asd[f'{stro}'] = normlizedRMSEE
             IndextotallStores += 1
         jsson[UserID][f"{FileName.split('.')[0]}"] = {"ListOfStores":stores, "RMSE_StoreByStore": asd,
         "Training" :"Completed",
